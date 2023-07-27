@@ -20,28 +20,40 @@ func main() {
 	}
 
 	var holdings []Holding
-	if err := alphavantage.ParseCSV(bytes.NewReader(spyHoldingsBuf), &holdings, nil); err != nil {
+	err = alphavantage.ParseCSV(bytes.NewReader(spyHoldingsBuf), &holdings, nil)
+	if err != nil {
 		log.Fatal(err)
 	}
 
 	var (
-		table      returns.Table
-		mostRecent time.Time
-		newest     Holding
+		table   returns.Table
+		weights []float64
 	)
 	for _, holding := range holdings {
+		weights = append(weights, holding.Weight/100)
 		rs, err := holding.Returns()
 		if err != nil {
 			log.Fatal(err)
 		}
-		if mostRecent.IsZero() || rs.FirstTime().After(mostRecent) {
-			mostRecent = rs.FirstTime()
-			newest = holding
-		}
+		rs = rs.Between(time.Now(), time.Now().AddDate(-1, 0, 0))
 		table = table.AddColumn(rs)
 	}
-	fmt.Println("most recent", mostRecent.Format(time.DateOnly), newest.Ticker)
-	fmt.Println(table.LastTime().Format(time.DateOnly), table.FirstTime().Format(time.DateOnly))
+	risks := table.RisksFromStdDev()
+
+	weightedAverageRisk := calculations.WeightedAverageRisk(weights, risks)
+	annualizedWeightedAverageRisk := calculations.AnnualizeRisk(weightedAverageRisk, calculations.PeriodsPerYear)
+	fmt.Printf("annualized weighted average risk: %f\n", annualizedWeightedAverageRisk)
+
+	portfolioRisk := calculations.AnnualizeRisk(calculations.ExpectedRisk(risks, weights, table.CorrelationMatrix()), calculations.PeriodsPerYear)
+	fmt.Printf("portfolio risk: %f\n", portfolioRisk)
+
+	bets, err := calculations.NumberOfBets(annualizedWeightedAverageRisk, portfolioRisk)
+	if err != nil {
+		log.Println(err)
+	}
+
+	fmt.Printf("unique number of bets from %s to %s\n", table.FirstTime().Format(time.DateOnly), table.LastTime().Format(time.DateOnly))
+	fmt.Printf("bets: %f\n", bets)
 }
 
 func returnsFromQuotes(quotes []alphavantage.Quote) returns.List {
