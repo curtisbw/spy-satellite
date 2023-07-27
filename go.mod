@@ -1,4 +1,4 @@
-module github.com/curtisbw/AlphaMaltipoo
+module github.com/curtisbw/spy-satellite
 
 go 1.20
 
